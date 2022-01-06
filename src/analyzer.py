@@ -1004,6 +1004,7 @@ def analyse_packet_ipv4(packet: list) -> dict:
     # Header (longueur d' entete): indique la longueur en nombre de mots de 32 bits (4 octets)
     octets_header_length = packet[0][1]
     header_length = convert_base_b_to_ten(number=octets_header_length, base=16) * 4
+    length_options = header_length - 20
 
     # TOF (Type de service): |D|T|R|C|Service| il est sur 8 bits
     octets_type_of_service = packet[1]
@@ -1111,16 +1112,84 @@ def analyse_packet_ipv4(packet: list) -> dict:
     octets_ip_d = "".join(ip_d)
     address_ip_destination = get_address_ip(ip_d)
 
+    if length_options > 0:
+        # Le champ Options est codé entre 0 et 40 octets.
+        # Il n'est pas obligatoire, mais permet le <<Tunning de l'entete IP>>.
+        octets_options = packet[20:header_length]
+        # Afin de bien gérer les Options, cela doit commencer par un octets de renseignement.
+        octet_info_options = octets_options[0]
+        bit_info_options = convert_base_b1_to_b2(number=octet_info_options, base1=16, base2=2)
+        if len(bit_info_options) < 8:
+            bit_info_options = ("0" * (8 - len(bit_info_options))) + bit_info_options
+        # Le champ Copie est codé sur 1 bit et indique comment les options doivent etre traitées
+        # lors de la fragmentation. Cela signifie que lorsqu'il est positionné à 1,
+        # il faut recopier les options dans chaque paquet fragmenté.
+        bit_copie_options = bit_info_options[0]
+        # Le champ Classe est codé sur 2 bits et indique les différentes catégories d'options existantes.
+        bit_class_options = bit_info_options[1:3]
+        dec_class_options = convert_base_b_to_ten(number=bit_class_options, base=2)
+        if dec_class_options == 0:
+            class_options = "Supervision de réseau"
+        elif dec_class_options == 1:
+            class_options = "Not used"
+        elif dec_class_options == 2:
+            class_options = "Debug et mesures"
+        elif dec_class_options == 3:
+            class_options = "Not used"
+        else:
+            class_options = "Error"
+        # Le champ Num*ro est codé sur 5 bits et indique les différentes options existantes.
+        bit_numero_options = bit_info_options[3:]
+        dec_numero_options = convert_base_b_to_ten(number=bit_numero_options, base=2)
+        # TODO: à completer
+        if dec_class_options == 0:
+            if dec_numero_options == 0:
+                # Fin de liste d'option.
+                # Utilisé si les options ne se terminent pas à la fin de l'entete (bourrage).
+                pass
+            elif dec_numero_options == 1:
+                # Pas d'opération.
+                # Utilisé pour aligner les octets dans une liste d'options.
+                pass
+            elif dec_numero_options == 2:
+                # Restriction de sécurité et de gestion.
+                # Destiné aux applications militaires.
+                pass
+            elif dec_numero_options == 3:
+                # Routage lache défini par la source.
+                pass
+            elif dec_numero_options == 7:
+                # Enregistrement de route.
+                pass
+            elif dec_numero_options == 8:
+                # Identificateur de connexion.
+                pass
+            elif dec_numero_options == 9:
+                # Routage strict défini par la source
+                pass
+            else:
+                pass
+        elif dec_class_options == 2:
+            if dec_numero_options == 4:
+                # Horodatage dans l'Internet
+                pass
+            else:
+                pass
+        else:
+            pass
+    else:
+        octets_options = None
+
     if dec_protocole == 1:
         protocole = "ICMP"
-        higher_level = analyse_datagram_icmp(datagram=packet[20:])
+        higher_level = analyse_datagram_icmp(datagram=packet[header_length:])
     elif dec_protocole == 6:
         protocole = "TCP"
-        higher_level = analyse_segment_tcp(segment=packet[20:])
+        higher_level = analyse_segment_tcp(segment=packet[header_length:])
     elif dec_protocole == 17:
         protocole = "UDP"
         # TODO: rédéfinir la fonction analyse_segment_udp en passant le pseudo entete en argument à la fonction
-        higher_level = analyse_segment_udp(segment=packet[20:])
+        higher_level = analyse_segment_udp(segment=packet[header_length:])
     else:
         higher_level = {"INFO": "UNKNOWN"}
 
@@ -1143,7 +1212,8 @@ def analyse_packet_ipv4(packet: list) -> dict:
                     "IP PROTOCOLE": [octets_protocole, protocole, dec_protocole],
                     "IP CHECKSUM": [header_checksum],
                     "IP ADDRESS IP SOURCE": [octets_ip_s, address_ip_source],
-                    "IP ADDRESS IP DESTINATION": [octets_ip_d, address_ip_destination]}
+                    "IP ADDRESS IP DESTINATION": [octets_ip_d, address_ip_destination],
+                    "IP OPTIONS": [length_options, octets_options]}
 
     for info in higher_level.keys():
         final_result[info] = higher_level[info]
@@ -1156,7 +1226,80 @@ def analyse_packet_ipv6(packet: list):
 
 
 def analyse_packet_arp(packet: list):
-    return {"ARP": "TODO"}
+    dict_hardware_type = {1: "Ethernet", 2: "Experimental Ethernet", 3: "Amateur Radio AX.25",
+                          4: "Proteon ProNET Token Ring", 5: "Chaos", 6: "IEEE 802 Networks",
+                          7: "ARCNET", 8: "Hyperchannel", 9: "Lanstar", 10: "Autonet Short Address",
+                          11: "LocalTalk", 12: "LocalNet", 13: "Ultra link", 14: "SMDS",
+                          15: "Frame Relay", 16: "Asynchronous Transmission Mode (ATM)",
+                          17: "HDLC", 18: "Fibre Channel", 19: "Asynchronous Transmission Mode (ATM)",
+                          20: "Serial Line", 21: "Asynchronous Transmission Mode (ATM)",
+                          22: "MIL-STD-188-220", 23: "Metricom", 24: "IEEE 1394.1995", 25: "MAPOS",
+                          26: "Twinaxial", 27: "EUI-64", 28: "HIPARP", 29: "IP AND ARP over ISO 7816-3",
+                          30: "ARPSec", 31: "IPsec tunnel", 32: "TIA-102 Project 25 Common Air Interface (CAI)"}
+
+    dict_protocol_type = {"0800": "IP"}
+    dict_opcode = {1: "Request", 2: "Reply"}
+
+    octets_hardware_type = "".join(packet[0:2])
+    dec_hardware_type = convert_base_b_to_ten(number=octets_hardware_type, base=16)
+    if dec_hardware_type in dict_hardware_type.keys():
+        hardware_type = dict_hardware_type[dec_hardware_type]
+    else:
+        hardware_type = "UNKNOWN"
+
+    octets_protocol_type = "".join(packet[2:4])
+    if octets_protocol_type in dict_protocol_type.keys():
+        protocol_type = dict_protocol_type[octets_protocol_type]
+    else:
+        protocol_type = "UNKNOWN"
+
+    octets_hardware_address_size = packet[4]
+    dec_hardware_size = convert_base_b_to_ten(number=octets_hardware_address_size, base=16)
+    octets_protocol_address_size = packet[5]
+    dec_protocol_size = convert_base_b_to_ten(number=octets_protocol_address_size, base=16)
+
+    octets_opcode = "".join(packet[6:8])
+    dec_opcode = convert_base_b_to_ten(number=octets_opcode, base=16)
+    if dec_opcode in dict_opcode.keys():
+        opcode = dict_opcode[dec_opcode]
+    else:
+        opcode = "UNKNOWN"
+
+    index_begin = 8
+    list_octets_source_mac_address = packet[index_begin: index_begin+dec_hardware_size]
+    octets_source_mac_address = "".join(list_octets_source_mac_address)
+    source_mac_address = ":".join(list_octets_source_mac_address)
+
+    index_begin += dec_hardware_size
+    list_octets_source_ip_address = packet[index_begin: index_begin+dec_protocol_size]
+    octets_source_ip_address = "".join(list_octets_source_ip_address)
+    source_ip_address = get_address_ip(a_d=list_octets_source_ip_address)
+
+    index_begin += dec_protocol_size
+    list_octets_destination_mac_address = packet[index_begin: index_begin+dec_hardware_size]
+    octets_destination_mac_source = "".join(list_octets_destination_mac_address)
+    destination_mac_address = ":".join(list_octets_destination_mac_address)
+
+    index_begin += dec_hardware_size
+    list_octets_destination_ip_address = packet[index_begin: index_begin+dec_protocol_size]
+    octets_destination_ip_address = "".join(list_octets_destination_ip_address)
+    destination_ip_address = get_address_ip(a_d=list_octets_destination_ip_address)
+    index_begin += dec_protocol_size
+
+    final_result = {"ARP HARDWARE TYPE": [octets_hardware_type, dec_hardware_type, hardware_type],
+                    "ARP PROTOCOL TYPE": [octets_protocol_type, protocol_type],
+                    "ARP HARDWARE SIZE": [octets_hardware_address_size, dec_hardware_size],
+                    "ARP PROTOCOL SIZE": [octets_protocol_address_size, dec_protocol_size],
+                    "ARP OPCODE": [octets_opcode, dec_opcode, opcode],
+                    "ARP SOURCE MAC ADDRESS": [octets_source_mac_address, source_mac_address],
+                    "ARP SOURCE IP ADDRESS": [octets_source_ip_address, source_ip_address],
+                    "ARP DESTINATION MAC ADDRESS": [octets_destination_mac_source, destination_mac_address],
+                    "ARP DESTINATION IP ADDRESS": [octets_destination_ip_address, destination_ip_address]}
+
+    if index_begin+1 < len(packet):
+        final_result["ETHERNET TRAILER"] = ["".join(packet[index_begin:])]
+
+    return final_result
 
 
 def analyse_packet_rarp(packet: list):
@@ -1227,6 +1370,8 @@ def get_info_trame(frame: list) -> str:
                    f" ({info_frame['ETHERNET ADDRESS MAC SOURCE ETHERNET'][1]})\n"
     final_print += f"\t-[Eth2] Protocole ethernet: 0x{info_frame['ETHERNET PROTOCOLE'][0]}" \
                    f" ({info_frame['ETHERNET PROTOCOLE'][1]})\n"
+    if "ETHERNET TRAILER" in info_frame.keys():
+        final_print += f"\t-[Eth2] Trailer: {info_frame['ETHERNET TRAILER'][0]}\n"
     # final_print += f"\t-[Eth2] FCS: 0x{info_frame['ETHERNET FCS'][0]}\n"
     if info_frame['ETHERNET PROTOCOLE'][0] == "0800":
         final_print += f"\nNiveau supérieur: IPv4\n"
@@ -1255,6 +1400,8 @@ def get_info_trame(frame: list) -> str:
                        f" soit {info_frame['IP ADDRESS IP SOURCE'][1]}\n"
         final_print += f"\t-[IPv4] Adresse IP destination: 0x{info_frame['IP ADDRESS IP DESTINATION'][0]}" \
                        f" soit {info_frame['IP ADDRESS IP DESTINATION'][1]}\n"
+        if info_frame['IP OPTIONS'][0] > 0:
+            final_print += f"\t-[IPv4] OPTIONS IP + PADDING: 0x{info_frame['IP OPTIONS'][1]}\n"
 
         if info_frame['IP PROTOCOLE'][2] == 1:
             pass
@@ -1466,8 +1613,28 @@ def get_info_trame(frame: list) -> str:
 
     elif info_frame['ETHERNET PROTOCOLE'][0] == "86DD":
         pass
+
     elif info_frame['ETHERNET PROTOCOLE'][0] == "0806":
-        pass
+        final_print += f"\nNiveau supérieur: ARP ({info_frame['ARP OPCODE'][2]})\n"
+        final_print += f"\t-[ARP] Hardware type: 0x{info_frame['ARP HARDWARE TYPE'][0]} soit" \
+                       f" {info_frame['ARP HARDWARE TYPE'][2]} ({info_frame['ARP HARDWARE TYPE'][1]})\n"
+        final_print += f"\t-[ARP] Protocol type: 0x{info_frame['ARP PROTOCOL TYPE'][0]} soit" \
+                       f" {info_frame['ARP PROTOCOL TYPE'][1]}\n"
+        final_print += f"\t-[ARP] Hardware size: 0x{info_frame['ARP HARDWARE SIZE'][0]} soit" \
+                       f" {info_frame['ARP HARDWARE SIZE'][1]}\n"
+        final_print += f"\t-[ARP] Protocol size: 0x{info_frame['ARP PROTOCOL SIZE'][0]} soit" \
+                       f" {info_frame['ARP PROTOCOL SIZE'][1]}\n"
+        final_print += f"\t-[ARP] Opcode: 0x{info_frame['ARP OPCODE'][0]} soit {info_frame['ARP OPCODE'][2]}" \
+                       f" ({info_frame['ARP OPCODE'][1]})\n"
+        final_print += f"\t-[ARP] Sender MAC address: 0x{info_frame['ARP SOURCE MAC ADDRESS'][0]}" \
+                       f" ({info_frame['ARP SOURCE MAC ADDRESS'][1]})\n"
+        final_print += f"\t-[ARP] Sender IP address: 0x{info_frame['ARP SOURCE IP ADDRESS'][0]}" \
+                       f" ({info_frame['ARP SOURCE IP ADDRESS'][1]})\n"
+        final_print += f"\t-[ARP] Target MAC address: 0x{info_frame['ARP DESTINATION MAC ADDRESS'][0]}" \
+                       f" ({info_frame['ARP DESTINATION MAC ADDRESS'][1]})\n"
+        final_print += f"\t-[ARP] Target IP address: 0x{info_frame['ARP DESTINATION IP ADDRESS'][0]}" \
+                       f" ({info_frame['ARP DESTINATION IP ADDRESS'][1]})\n"
+
     elif info_frame['ETHERNET PROTOCOLE'][0] == "0835":
         pass
     elif info_frame['ETHERNET PROTOCOLE'][0] == "80D5":

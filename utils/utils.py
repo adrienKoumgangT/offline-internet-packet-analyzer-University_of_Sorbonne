@@ -102,6 +102,87 @@ def inverse_masque(masque):
     return ".".join(s)
 
 
+def get_cidr(ad_ip: str, mask: str) -> str:
+    """
+    méthode qui a partir de l'IP et du masque
+    renvoie la notation CIDR
+    """
+    s = mask.split(".")
+    one = 0
+    for elem in s:
+        if elem != 0:
+            r = convert_base_ten_to_b(number=int(elem), base=2)
+            one += r.count("1")
+    return ad_ip + "/" + str(one)
+
+
+def get_ip_masque(cidr: str) -> tuple:
+    """
+    méthode qui a partir du CIDR retourne l' ip et le masque
+    """
+    if not cidr:
+        return ()
+    ip_mask = cidr.split("/")
+    final_ip = ip_mask[0]
+    mask = int(ip_mask[1])
+    if mask == 32:
+        return final_ip, "255.255.255.255"
+    if mask == 0:
+        return final_ip, "0.0.0.0"
+    final_mask = ""
+    # premier set de bit 255.-.-.-
+    for i in range(0, 4):
+        if mask > 8:
+            final_mask += "255"
+            mask -= 8
+        elif mask != 0:
+            n = "1." * mask
+            n += "0." * (8 - mask)
+            n = n[:len(n) - 1]
+            num = convert_base_b_to_ten(number=n, base=2)
+            final_mask += str(num)
+            mask = 0
+        elif mask == 0:
+            final_mask += "0"
+        if i != 3:
+            final_mask = final_mask + "."
+    return final_ip, final_mask
+
+
+def num_machine_cidr(cidr: str) -> int:
+    masque = int(cidr.split("/")[1])
+    nb = (2 ** (32 - masque)) - 2
+    return nb
+
+
+def num_machine_ip_masque(ad_ip: str, mask: str) -> int:
+    cidr = get_cidr(ad_ip=ad_ip, mask=mask)
+    return num_machine_cidr(cidr=cidr)
+
+
+def get_subnet_address(cidr: str) -> str:
+    (ip, mask) = get_ip_masque(cidr=cidr)
+    list_ip = ip.split(".")
+    list_mask = mask.split(".")
+    subnet = []
+    for i in range(0, 4):
+        subnet.append(str(int(list_ip[i]) & int(list_mask[i])))
+    return ".".join(subnet)
+
+
+def get_address_ip(a_d: list) -> str:
+    if len(a_d) != 4:
+        return ""
+    ip1 = a_d[0]
+    ip2 = a_d[1]
+    ip3 = a_d[2]
+    ip4 = a_d[3]
+    return ".".join([str(convert_base_b_to_ten(number=ip1, base=16)),
+                    str(convert_base_b_to_ten(number=ip2, base=16)),
+                    str(convert_base_b_to_ten(number=ip3, base=16)),
+                    str(convert_base_b_to_ten(number=ip4, base=16))])
+
+
 def calcul_ttl_in_hour(ttl: int):
     """
     Fonction qui prend le temps sous forme de secondes
@@ -119,6 +200,28 @@ def calcul_ttl_in_hour(ttl: int):
     hr = mn // 60
     mn = mn % 60
     return str(hr) + " heurs " + str(mn) + " minutes " + str(sc) + " secondes"
+
+
+def calcul_checksum(data_checksum):
+    len_data_checksum = len(data_checksum)
+    if len_data_checksum % 2 != 0:
+        return 0
+    else:
+        final_sum = 0
+        for i in range(0, len_data_checksum, 2):
+            octets_data = "".join(data_checksum[i:i+2])
+            dec_data = convert_base_b_to_ten(number=octets_data, base=16)
+            final_sum += dec_data
+        bit_checksum = convert_base_ten_to_b(number=final_sum, base=2)
+        if len(bit_checksum) > 16:
+            first_part = bit_checksum[-16:]
+            second_part = bit_checksum[0:len(bit_checksum)-16]
+            dec_first_part = convert_base_b_to_ten(number=first_part, base=2)
+            dec_second_part = convert_base_b_to_ten(number=second_part, base=2)
+            checksum = convert_base_ten_to_b(number=dec_first_part+dec_second_part, base=16)
+        else:
+            checksum = convert_base_ten_to_b(number=final_sum, base=16)
+        return checksum
 
 
 TABLE_ASCII = {"00": " ", "01": " ", "02": " ", "03": " ", "04": " ", "05": " ", "06": " ", "07": " ",
